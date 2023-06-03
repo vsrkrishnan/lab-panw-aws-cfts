@@ -1,0 +1,379 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  KeyName:
+    Type: String
+    Description: Name of the key pair used for EC2 instances
+
+Resources:
+  TransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      Description: Transit Gateway for VPC connectivity
+
+### VPC Resources for Vulnerable VPC
+
+  VulVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: vul-vpc
+
+  VulInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: vul-igw
+
+  VulVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VulVPC
+      InternetGatewayId: !Ref VulInternetGateway
+
+  VulAppSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VulVPC
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
+      Tags:
+        - Key: Name
+          Value: app-subnet
+
+  VulTgwSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VulVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
+      Tags:
+        - Key: Name
+          Value: tgw-subnet
+
+  VulGwlbeSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VulVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
+      Tags:
+        - Key: Name
+          Value: gwlbe-subnet
+
+  VulAppRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VulVPC
+      Tags:
+        - Key: Name
+          Value: vul-app-rt
+
+  VulGwlbeRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VulVPC
+      Tags:
+        - Key: Name
+          Value: vul-gwlbe-rt
+
+  VulIgwRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VulVPC
+      Tags:
+        - Key: Name
+          Value: vul-igw-rt
+
+  VulAppSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VulAppSubnet
+      RouteTableId: !Ref VulAppRouteTable
+
+  VulGwlbeSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VulGwlbeSubnet
+      RouteTableId: !Ref VulGwlbeRouteTable
+
+  VulIgwRouteTableAssociation:
+    Type: AWS::EC2::GatewayRouteTableAssociation
+    Properties:
+      GatewayId: !Ref VulInternetGateway
+      RouteTableId: !Ref VulIgwRouteTable
+
+  VulInternetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VulAppRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VulInternetGateway
+
+  VulAttRoute:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - VulTgwAttachment
+    Properties:
+      RouteTableId: !Ref VulAppRouteTable
+      DestinationCidrBlock: 10.1.0.0/16
+      TransitGatewayId: !Ref TransitGateway
+
+  VulEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VulEC2Instance
+      VpcId: !Ref VulVPC
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.1.0.0/16
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 10.1.0.0/16
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 0
+          CidrIp: 0.0.0.0/0
+
+  VulEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0f57ffe8bd04fa66d  # Enter the appropriate AMI ID
+      InstanceType: t2.micro  # Enter the desired instance type
+      KeyName: !Ref KeyName  #!Join ['', [!FindInMap [KeyPairMap, qwikLABS, KeyNamePrefix], !Ref 'AWS::AccountId']]
+      NetworkInterfaces:
+        - PrivateIpAddress: 10.0.0.10  # Enter the desired private IP address
+          AssociatePublicIpAddress: True
+          SubnetId: !Ref VulAppSubnet
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref VulEC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: vul-svr
+
+  VulTgwAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VulVPC
+      SubnetIds:
+        - !Ref VulTgwSubnet
+
+### VPC Resources for Attack VPC
+
+  AttVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      Tags:
+        - Key: Name
+          Value: att-vpc
+
+  AttInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: att-igw
+
+  AttVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref AttVPC
+      InternetGatewayId: !Ref AttInternetGateway
+
+  AttAppSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref AttVPC
+      CidrBlock: 10.1.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
+      Tags:
+        - Key: Name
+          Value: app-subnet
+
+  AttTgwSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref AttVPC
+      CidrBlock: 10.1.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
+      Tags:
+        - Key: Name
+          Value: tgw-subnet
+
+  AttGwlbeSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref AttVPC
+      CidrBlock: 10.1.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
+      Tags:
+        - Key: Name
+          Value: gwlbe-subnet
+
+  AttAppRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref AttVPC
+      Tags:
+        - Key: Name
+          Value: att-app-rt
+
+  AttIgwRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref AttVPC
+      Tags:
+        - Key: Name
+          Value: att-igw-rt
+
+  AttGwlbeRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref AttVPC
+      Tags:
+        - Key: Name
+          Value: att-gwlbe-rt
+
+  AttAppSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AttAppSubnet
+      RouteTableId: !Ref AttAppRouteTable
+
+  AttGwlbeSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AttGwlbeSubnet
+      RouteTableId: !Ref AttGwlbeRouteTable
+
+  AttIgwRouteTableAssociation:
+    Type: AWS::EC2::GatewayRouteTableAssociation
+    Properties:
+      GatewayId: !Ref AttInternetGateway
+      RouteTableId: !Ref AttIgwRouteTable
+
+  AttInternetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref AttAppRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref AttInternetGateway
+
+  AttVulRoute:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - AttTgwAttachment
+    Properties:
+      RouteTableId: !Ref AttAppRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      TransitGatewayId: !Ref TransitGateway
+
+  AttEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for AttEC2Instance
+      VpcId: !Ref AttVPC
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.0.0/16
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 1389
+          ToPort: 1389
+          CidrIp: 10.0.0.0/16
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 0
+          CidrIp: 0.0.0.0/0
+
+  AttEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0f57ffe8bd04fa66d  # Enter the appropriate AMI ID
+      InstanceType: t2.micro  # Enter the desired instance type
+      KeyName: !Ref KeyName  #!Join ['', [!FindInMap [KeyPairMap, qwikLABS, KeyNamePrefix], !Ref 'AWS::AccountId']]
+      NetworkInterfaces:
+        - PrivateIpAddress: 10.1.0.10  # Enter the desired private IP address
+          AssociatePublicIpAddress: True
+          SubnetId: !Ref AttAppSubnet
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref AttEC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: att-svr
+
+  AttTgwAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref AttVPC
+      SubnetIds:
+        - !Ref AttTgwSubnet
+
+### VPC Resources for Security VPC
+
+  SecVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.2.0.0/16
+      Tags:
+        - Key: Name
+          Value: sec-vpc
+
+  SecGwlbeSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecVPC
+      CidrBlock: 10.2.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
+      Tags:
+        - Key: Name
+          Value: gwlbe-subnet
+
+  SecTgwSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecVPC
+      CidrBlock: 10.2.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
+      Tags:
+        - Key: Name
+          Value: tgw-subnet
+
+  SecTgwAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref SecVPC
+      SubnetIds:
+        - !Ref SecTgwSubnet
+
+Outputs:
+  VulEC2InstancePublicIP:
+    Value: !GetAtt VulEC2Instance.PublicIp
+    Description: Public IP address of VulEC2Instance
+
+  AttEC2InstancePublicIP:
+    Value: !GetAtt AttEC2Instance.PublicIp
+    Description: Public IP address of AttEC2Instance
