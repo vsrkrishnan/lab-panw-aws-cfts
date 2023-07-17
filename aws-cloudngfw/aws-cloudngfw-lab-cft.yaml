@@ -2,14 +2,90 @@ AWSTemplateFormatVersion: '2010-09-09'
 
 Parameters:
   KeyName:
-    Type: String
-    Description: Name of the key pair used for EC2 instances
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    Description: Name of the KeyPair used for EC2 instances
+    ConstraintDescription: 'Must be the name of an existing EC2 KeyPair.'
+
+  LatestAmiId :
+    Type : 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
 
 Resources:
   TransitGateway:
     Type: AWS::EC2::TransitGateway
     Properties:
       Description: Transit Gateway for VPC connectivity
+      DefaultRouteTableAssociation: disable
+      DefaultRouteTablePropagation: disable
+
+  FromAppVpcsRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: from-app-vpcs
+
+  FromSecVpcRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: from-sec-vpc
+
+  VulVpcTgwAttachAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties: 
+      TransitGatewayAttachmentId: !Ref VulTgwAttachment
+      TransitGatewayRouteTableId: !Ref FromAppVpcsRouteTable
+
+  AttVpcTgwAttachAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties: 
+      TransitGatewayAttachmentId: !Ref AttTgwAttachment
+      TransitGatewayRouteTableId: !Ref FromAppVpcsRouteTable
+
+  SecVpcTgwAttachAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties: 
+      TransitGatewayAttachmentId: !Ref SecTgwAttachment
+      TransitGatewayRouteTableId: !Ref FromSecVpcRouteTable
+
+  FromSecVpcRoute1:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      TransitGatewayRouteTableId: !Ref FromSecVpcRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      TransitGatewayAttachmentId: !Ref VulTgwAttachment
+
+  FromSecVpcRoute2:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      TransitGatewayRouteTableId: !Ref FromSecVpcRouteTable
+      DestinationCidrBlock: 10.1.0.0/16
+      TransitGatewayAttachmentId: !Ref AttTgwAttachment
+
+  FromAppVpcsRoute1:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      TransitGatewayRouteTableId: !Ref FromAppVpcsRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      TransitGatewayAttachmentId: !Ref SecTgwAttachment
+
+  FromAppVpcsRoute2:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      TransitGatewayRouteTableId: !Ref FromAppVpcsRouteTable
+      DestinationCidrBlock: 10.1.0.0/16
+      TransitGatewayAttachmentId: !Ref AttTgwAttachment
+
+  FromAppVpcsRoute3:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      TransitGatewayRouteTableId: !Ref FromAppVpcsRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      TransitGatewayAttachmentId: !Ref VulTgwAttachment
 
 ### VPC Resources for Vulnerable VPC
 
@@ -26,7 +102,7 @@ Resources:
     Properties:
       Tags:
         - Key: Name
-          Value: vul-igw
+          Value: vul-vpc-igw
 
   VulVPCGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -42,7 +118,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
       Tags:
         - Key: Name
-          Value: app-subnet
+          Value: vul-vpc-app-subnet
 
   VulTgwSubnet:
     Type: AWS::EC2::Subnet
@@ -52,7 +128,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
       Tags:
         - Key: Name
-          Value: tgw-subnet
+          Value: vul-vpc-tgw-subnet
 
   VulGwlbeSubnet:
     Type: AWS::EC2::Subnet
@@ -62,7 +138,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
       Tags:
         - Key: Name
-          Value: gwlbe-subnet
+          Value: vul-vpc-gwlbe-subnet
 
   VulAppRouteTable:
     Type: AWS::EC2::RouteTable
@@ -70,7 +146,7 @@ Resources:
       VpcId: !Ref VulVPC
       Tags:
         - Key: Name
-          Value: vul-app-rt
+          Value: vul-vpc-app-rt
 
   VulGwlbeRouteTable:
     Type: AWS::EC2::RouteTable
@@ -78,7 +154,7 @@ Resources:
       VpcId: !Ref VulVPC
       Tags:
         - Key: Name
-          Value: vul-gwlbe-rt
+          Value: vul-vpc-gwlbe-rt
 
   VulIgwRouteTable:
     Type: AWS::EC2::RouteTable
@@ -86,7 +162,7 @@ Resources:
       VpcId: !Ref VulVPC
       Tags:
         - Key: Name
-          Value: vul-igw-rt
+          Value: vul-vpc-igw-rt
 
   VulAppSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -145,11 +221,14 @@ Resources:
           FromPort: 0
           ToPort: 0
           CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: vul-vpc-sg
 
   VulEC2Instance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: ami-0f57ffe8bd04fa66d  # Enter the appropriate AMI ID
+      ImageId: !Ref LatestAmiId  # Enter the appropriate AMI ID
       InstanceType: t2.micro  # Enter the desired instance type
       KeyName: !Ref KeyName  #!Join ['', [!FindInMap [KeyPairMap, qwikLABS, KeyNamePrefix], !Ref 'AWS::AccountId']]
       NetworkInterfaces:
@@ -162,6 +241,8 @@ Resources:
       Tags:
         - Key: Name
           Value: vul-svr
+      UserData:
+        Fn::Base64: IyEvYmluL2Jhc2gKCiMgVXBkYXRlIGhvc3RuYW1lIGZvciBiZXR0ZXIgaWRlbnRpZmljYXRpb24Kc3VkbyBob3N0bmFtZSB2dWwtYXBwLXNlcnZlcgoKIyBVcGRhdGluZyB5dW0gcmVwb3NpdG9yaWVzCnN1ZG8geXVtIHVwZGF0ZSAteQoKIyBJbnN0YWxsaW5nIERvY2tlcgpzdWRvIGFtYXpvbi1saW51eC1leHRyYXMgaW5zdGFsbCBkb2NrZXIgLXkKc3VkbyB5dW0gaW5zdGFsbCAteSBkb2NrZXIKCiMgU3RhcnRpbmcgRG9ja2VyCnN1ZG8gc2VydmljZSBkb2NrZXIgc3RhcnQKc3VkbyBzeXN0ZW1jdGwgZW5hYmxlIGRvY2tlcgpzdWRvIHVzZXJtb2QgLWEgLUcgZG9ja2VyIGVjMi11c2VyCnN1ZG8gZG9ja2VyIGluZm8KCiMgRG93bmxvYWRpbmcgYW5kIFJ1bm5pbmcgdGhlIFZ1bG5lcmFibGUgQXBwIFNlcnZlciBEZW1vIEFwcApzdWRvIGRvY2tlciBjb250YWluZXIgcnVuIC1pdGQgLS1ybSAtLW5hbWUgdnVsLWFwcC0xIC1wIDgwODA6ODA4MCB1cy5nY3IuaW8vcGFudy1nY3AtdGVhbS10ZXN0aW5nL3F3aWtsYWIvcGNjLWxvZzRzaGVsbC9sNHMtZGVtby1hcHA6MS4wCgojIFVwZGF0aW5nIHRoZSAvZXRjL2hvc3RzIGZpbGUgdG8gYWRkIGEgRE5TIGVudHJ5IGZvciB0aGUgYXR0YWNrIHNlcnZlcgojIENvbW1lbnRpbmcgdGhpcyBmb3Igbm93IGFzIHRoZSBlbnRyeSBpcyBub3QgYWRkZWQgYXMgaW50ZW5kZWQgYXQgdGhlIHRpbWUgb2Ygc2VydmVyIGJyaW5ndXAuIE5lZWQgdG8KIyByZXZpc2l0IHRoaXMgcGxhY2UgbGF0ZXIuCiMgc3VkbyBkb2NrZXIgZXhlYyAtaXQgdnVsLWFwcC0xIC9iaW4vc2ggLWMgJ2VjaG8gIjEwLjEuMC4xMCAgICBhdHQtc3ZyIiA+PiAvZXRjL2hvc3RzJw==
 
   VulTgwAttachment:
     Type: AWS::EC2::TransitGatewayAttachment
@@ -186,7 +267,7 @@ Resources:
     Properties:
       Tags:
         - Key: Name
-          Value: att-igw
+          Value: att-vpc-igw
 
   AttVPCGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -202,7 +283,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
       Tags:
         - Key: Name
-          Value: app-subnet
+          Value: att-vpc-app-subnet
 
   AttTgwSubnet:
     Type: AWS::EC2::Subnet
@@ -212,7 +293,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
       Tags:
         - Key: Name
-          Value: tgw-subnet
+          Value: att-vpc-tgw-subnet
 
   AttGwlbeSubnet:
     Type: AWS::EC2::Subnet
@@ -222,7 +303,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
       Tags:
         - Key: Name
-          Value: gwlbe-subnet
+          Value: att-vpc-gwlbe-subnet
 
   AttAppRouteTable:
     Type: AWS::EC2::RouteTable
@@ -230,7 +311,7 @@ Resources:
       VpcId: !Ref AttVPC
       Tags:
         - Key: Name
-          Value: att-app-rt
+          Value: att-vpc-app-rt
 
   AttIgwRouteTable:
     Type: AWS::EC2::RouteTable
@@ -238,7 +319,7 @@ Resources:
       VpcId: !Ref AttVPC
       Tags:
         - Key: Name
-          Value: att-igw-rt
+          Value: att-vpc-igw-rt
 
   AttGwlbeRouteTable:
     Type: AWS::EC2::RouteTable
@@ -246,7 +327,7 @@ Resources:
       VpcId: !Ref AttVPC
       Tags:
         - Key: Name
-          Value: att-gwlbe-rt
+          Value: att-vpc-gwlbe-rt
 
   AttAppSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -300,16 +381,23 @@ Resources:
           FromPort: 1389
           ToPort: 1389
           CidrIp: 10.0.0.0/16
+        - IpProtocol: tcp
+          FromPort: 8888
+          ToPort: 8888
+          CidrIp: 10.0.0.0/16
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: 0
           ToPort: 0
           CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: att-vpc-sg
 
   AttEC2Instance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: ami-0f57ffe8bd04fa66d  # Enter the appropriate AMI ID
+      ImageId: !Ref LatestAmiId  # Enter the appropriate AMI ID
       InstanceType: t2.micro  # Enter the desired instance type
       KeyName: !Ref KeyName  #!Join ['', [!FindInMap [KeyPairMap, qwikLABS, KeyNamePrefix], !Ref 'AWS::AccountId']]
       NetworkInterfaces:
@@ -322,6 +410,8 @@ Resources:
       Tags:
         - Key: Name
           Value: att-svr
+      UserData:
+        Fn::Base64: IyEvYmluL2Jhc2gKCiMgVXBkYXRlIGhvc3RuYW1lIGZvciBiZXR0ZXIgaWRlbnRpZmljYXRpb24Kc3VkbyBob3N0bmFtZSBhdHQtYXBwLXNlcnZlcgoKIyBVcGRhdGluZyB5dW0gcmVwb3NpdG9yaWVzCnN1ZG8geXVtIHVwZGF0ZSAteQoKIyBJbnN0YWxsaW5nIERvY2tlcgpzdWRvIGFtYXpvbi1saW51eC1leHRyYXMgaW5zdGFsbCBkb2NrZXIgLXkKc3VkbyB5dW0gaW5zdGFsbCBkb2NrZXIgLXkKCiMgU3RhcnRpbmcgRG9ja2VyCnN1ZG8gc2VydmljZSBkb2NrZXIgc3RhcnQKc3VkbyBzeXN0ZW1jdGwgZW5hYmxlIGRvY2tlcgpzdWRvIHVzZXJtb2QgLWEgLUcgZG9ja2VyIHVidW50dQpzdWRvIGRvY2tlciBpbmZvCgojIERvd25sb2FkaW5nIGFuZCBSdW5uaW5nIHRoZSBBdHRhY2sgQXBwIFNlcnZlciBEZW1vIEFwcApzdWRvIGRvY2tlciBjb250YWluZXIgcnVuIC1pdGQgLS1ybSAtLW5hbWUgYXR0LXN2ciAtcCA4ODg4Ojg4ODggLXAgMTM4OToxMzg5IHVzLmdjci5pby9wYW53LWdjcC10ZWFtLXRlc3RpbmcvcXdpa2xhYi9wY2MtbG9nNHNoZWxsL2w0cy1kZW1vLXN2cjoxLjA=
 
   AttTgwAttachment:
     Type: AWS::EC2::TransitGatewayAttachment
@@ -349,7 +439,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
       Tags:
         - Key: Name
-          Value: gwlbe-subnet
+          Value: sec-vpc-gwlbe-subnet
 
   SecTgwSubnet:
     Type: AWS::EC2::Subnet
@@ -359,7 +449,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs 'us-east-1']
       Tags:
         - Key: Name
-          Value: tgw-subnet
+          Value: sec-vpc-tgw-subnet
 
   SecTgwAttachment:
     Type: AWS::EC2::TransitGatewayAttachment
