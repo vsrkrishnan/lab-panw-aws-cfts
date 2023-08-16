@@ -14,15 +14,21 @@ Cloud NGFW for AWS delivers these capabilities with deep, inline learning to hel
 
 As the first NGFW to integrate with AWS Firewall Manager, the cloud-delivered service lets AWS customers take advantage of automatic scaling and high availability with no maintenance requirements. Cloud NGFW for AWS can be procured in AWS Marketplace, then quickly set up and integrated with native AWS services, enabling network security in minutes with just a few clicks.
 
+## Audience
+
+This hands-on lab is intended for anyone who has an AWS account and would like to get some hands-on experience with Palo Alto Networks Cloud NGFW for AWS. More specifically, this lab will benefit the AWS Cloud Network and Security admins of the world.
+
 ## Pre-requisites
-1. Ensure that you have permissions for the below AWS services.
+
+1. First and foremost, we need an AWS account to run the lab.
+2. Ensure that you have permissions for the below AWS services.
     * AWS Marketplace Subscriptions
     * AWS CloudFormation
     * Create or Update AWS VPCs, Subnets, Routes
     * Create or Update Transit Gateways and associated services.
     * Create or Update EC2 instances.
-2. Ensure that you have a SSH Key-Pair already created that can be used to connect to the EC2 instances created as part of the lab setup.
-3. Ensure that your network allows you to SSH to public EC2 instances. Sometimes SSH might be blocked by your organisation.
+3. Ensure that you have a SSH Key-Pair already created that can be used to connect to the EC2 instances created as part of the lab setup.
+4. Ensure that your network allows you to SSH to public EC2 instances. Sometimes SSH might be blocked by your organisation.
 
 ## Lab Setup
 
