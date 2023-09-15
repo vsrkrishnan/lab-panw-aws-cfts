@@ -451,6 +451,34 @@ Resources:
         - Key: Name
           Value: sec-vpc-tgw-subnet
 
+  SecGwlbeRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecVPC
+      Tags:
+        - Key: Name
+          Value: sec-vpc-gwlbe-rt
+
+  SecTgwRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecVPC
+      Tags:
+        - Key: Name
+          Value: sec-vpc-tgw-rt
+
+  SecGwlbeSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SecGwlbeSubnet
+      RouteTableId: !Ref SecGwlbeRouteTable
+
+  SecTgwSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SecTgwSubnet
+      RouteTableId: !Ref SecTgwRouteTable
+
   SecTgwAttachment:
     Type: AWS::EC2::TransitGatewayAttachment
     Properties:
@@ -458,6 +486,24 @@ Resources:
       VpcId: !Ref SecVPC
       SubnetIds:
         - !Ref SecTgwSubnet
+
+  SecVulRoute:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - SecTgwAttachment
+    Properties:
+      RouteTableId: !Ref SecGwlbeRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      TransitGatewayId: !Ref TransitGateway
+
+  SecAttRoute:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - SecTgwAttachment
+    Properties:
+      RouteTableId: !Ref SecGwlbeRouteTable
+      DestinationCidrBlock: 10.1.0.0/16
+      TransitGatewayId: !Ref TransitGateway
 
 Outputs:
   VulEC2InstancePublicIP:
